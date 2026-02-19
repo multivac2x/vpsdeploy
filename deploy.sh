@@ -36,6 +36,7 @@ if [[ -f "$ENV_FILE" ]]; then
     temp_env=$(mktemp)
     grep -v '^\s*#' "$ENV_FILE" | grep -v '^\s*$' > "$temp_env"
     set -a
+    # shellcheck disable=SC1090
     source "$temp_env"
     set +a
     rm -f "$temp_env"
@@ -131,13 +132,17 @@ done
 # =====================
 # SSH/RSYNC OPTIONS
 # =====================
-SSH_OPTS="-p ${SSH_PORT}"
-[[ -n "$SSH_KEY" ]] && SSH_OPTS="${SSH_OPTS} -i ${SSH_KEY}"
-SSH_OPTS="${SSH_OPTS} -o ConnectTimeout=10 -o BatchMode=yes"
+build_ssh_cmd() {
+    local -a cmd
+    cmd=(ssh -p "${SSH_PORT}" -o ConnectTimeout=10 -o BatchMode=yes)
+    [[ -n "$SSH_KEY" ]] && cmd+=(-i "${SSH_KEY}")
+    [[ "$VERBOSE" == true ]] && cmd+=(-v)
+    printf '%q ' "${cmd[@]}"
+}
 
-RSYNC_OPTS="-az --delete --stats"
-[[ "$VERBOSE" == true ]] && RSYNC_OPTS="${RSYNC_OPTS}v"
-[[ "$DRY_RUN" == true ]] && RSYNC_OPTS="${RSYNC_OPTS} --dry-run"
+RSYNC_OPTS=(-az --delete --stats)
+[[ "$VERBOSE" == true ]] && RSYNC_OPTS+=(-v)
+[[ "$DRY_RUN" == true ]] && RSYNC_OPTS+=(--dry-run)
 
 # =====================
 # BUILD
@@ -190,7 +195,7 @@ deploy_static() {
     log_step "Deploying static site to ${domain}..."
 
     # Test SSH connection
-    if ! ssh ${SSH_OPTS} -o ConnectTimeout=10 -o BatchMode=yes "${VPS_USER}@${VPS_IP}" "echo ok" &>/dev/null; then
+    if ! eval "$(build_ssh_cmd)" "${VPS_USER}@${VPS_IP}" "echo ok" &>/dev/null; then
         log_error "Cannot connect to ${VPS_USER}@${VPS_IP}:${SSH_PORT}"
         log_error "Check your SSH key, VPS_USER, VPS_IP, and SSH_PORT settings."
         exit 1
@@ -198,13 +203,13 @@ deploy_static() {
 
     # Ensure remote directory exists
     if [[ "$DRY_RUN" == false ]]; then
-        ssh ${SSH_OPTS} "${VPS_USER}@${VPS_IP}" "mkdir -p ${remote_path}"
+        eval "$(build_ssh_cmd)" "${VPS_USER}@${VPS_IP}" "mkdir -p '${remote_path}'"
     fi
 
     # Rsync build output
     log_info "Syncing ${BUILD_OUTPUT}/ → ${remote_path}"
-    rsync ${RSYNC_OPTS} \
-        -e "ssh ${SSH_OPTS}" \
+    rsync "${RSYNC_OPTS[@]}" \
+        -e "ssh $(build_ssh_cmd)" \
         "${BUILD_OUTPUT}/" \
         "${VPS_USER}@${VPS_IP}:${remote_path}"
 
@@ -221,7 +226,7 @@ deploy_dynamic() {
     log_step "Deploying dynamic app to ${domain}..."
 
     # Test SSH connection
-    if ! ssh ${SSH_OPTS} -o ConnectTimeout=10 -o BatchMode=yes "${VPS_USER}@${VPS_IP}" "echo ok" &>/dev/null; then
+    if ! eval "$(build_ssh_cmd)" "${VPS_USER}@${VPS_IP}" "echo ok" &>/dev/null; then
         log_error "Cannot connect to ${VPS_USER}@${VPS_IP}:${SSH_PORT}"
         log_error "Check your SSH key, VPS_USER, VPS_IP, and SSH_PORT settings."
         exit 1
@@ -229,16 +234,16 @@ deploy_dynamic() {
 
     # Ensure remote directory exists
     if [[ "$DRY_RUN" == false ]]; then
-        ssh ${SSH_OPTS} "${VPS_USER}@${VPS_IP}" "mkdir -p ${remote_path}"
+        eval "$(build_ssh_cmd)" "${VPS_USER}@${VPS_IP}" "mkdir -p '${remote_path}'"
     fi
 
     # Rsync entire project (excluding node_modules, .next/cache)
     log_info "Syncing project → ${remote_path}"
-    rsync ${RSYNC_OPTS} \
+    rsync "${RSYNC_OPTS[@]}" \
         --exclude='node_modules' \
         --exclude='.next/cache' \
         --exclude='.git' \
-        -e "ssh ${SSH_OPTS}" \
+        -e "ssh $(build_ssh_cmd)" \
         "./" \
         "${VPS_USER}@${VPS_IP}:${remote_path}"
 
@@ -247,15 +252,15 @@ deploy_dynamic() {
 
         # Post-deploy: npm install and build on server
         log_step "Running post-deploy on server..."
-        ssh ${SSH_OPTS} "${VPS_USER}@${VPS_IP}" "cd ${remote_path} && npm install --production"
+        eval "$(build_ssh_cmd)" "${VPS_USER}@${VPS_IP}" "cd '${remote_path}' && npm install --production"
 
         log_info "Building on server..."
-        ssh ${SSH_OPTS} "${VPS_USER}@${VPS_IP}" "cd ${remote_path} && npm run build"
+        eval "$(build_ssh_cmd)" "${VPS_USER}@${VPS_IP}" "cd '${remote_path}' && npm run build"
 
         # Restart PM2
         log_info "Restarting PM2 process..."
-        ssh ${SSH_OPTS} "${VPS_USER}@${VPS_IP}" "cd ${remote_path} && pm2 restart ${PM2_APP_NAME} || pm2 start npm --name '${PM2_APP_NAME}' -- start"
-        ssh ${SSH_OPTS} "${VPS_USER}@${VPS_IP}" "pm2 save"
+        eval "$(build_ssh_cmd)" "${VPS_USER}@${VPS_IP}" "cd '${remote_path}' && pm2 restart '${PM2_APP_NAME}' || pm2 start npm --name '${PM2_APP_NAME}' -- start"
+        eval "$(build_ssh_cmd)" "${VPS_USER}@${VPS_IP}" "pm2 save"
 
         log_success "${domain} deployed and running"
         echo -e "    ${BOLD}Verify:${NC} https://${domain}"

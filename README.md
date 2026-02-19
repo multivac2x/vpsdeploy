@@ -214,6 +214,17 @@ Two dynamic domains cannot use the same port. Change the `DOMAIN_PORT` in one of
 - Check Caddy status: `ssh <VPS_USER>@<VPS_IP> 'systemctl status caddy'`
 - View logs: `ssh <VPS_USER>@<VPS_IP> 'sudo tail -f /var/log/caddy/<DOMAIN>.log'`
 
+## Testing
+
+Comprehensive test plans are available in the `plans/` directory with detailed story breakdowns in `docs/stories/`. See [plans/TESTING_OVERVIEW.md](plans/TESTING_OVERVIEW.md) for a complete guide to all test suites.
+
+- **Unit Tests:** [plans/test-setup-vps.sh.md](plans/test-setup-vps.sh.md) (37 stories) and [plans/test-deploy.sh.md](plans/test-deploy.sh.md) (14 stories)
+- **Integration Tests:** [plans/test-integration.md](plans/test-integration.md) (8 stories)
+- **Error Handling:** [plans/test-error-handling.md](plans/test-error-handling.md) (10 stories)
+- **Deployment Scenarios:** [plans/test-deployment-scenarios.md](plans/test-deployment-scenarios.md) (8 stories)
+
+Full epic and story documentation: [docs/EPICS.md](docs/EPICS.md) and individual stories in `docs/stories/`.
+
 ## Contributing
 
 Contributions are welcome! Please:
