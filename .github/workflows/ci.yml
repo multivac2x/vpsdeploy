@@ -1,0 +1,123 @@
+name: CI
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+    branches: [ main, master ]
+
+jobs:
+  shellcheck:
+    name: ShellCheck
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install shellcheck
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y shellcheck
+
+      - name: Run shellcheck on all scripts
+        run: |
+          echo "Running shellcheck on all bash scripts..."
+          shellcheck -x setup-vps.sh
+          shellcheck -x deploy.sh
+          shellcheck -x phases/*.sh
+          shellcheck -x lib/*.sh
+          echo "✅ All scripts passed shellcheck"
+
+  bash-syntax:
+    name: Bash Syntax Check
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Check bash syntax
+        run: |
+          echo "Checking bash syntax..."
+          bash -n setup-vps.sh
+          bash -n deploy.sh
+          for script in phases/*.sh; do
+            echo "Checking $script..."
+            bash -n "$script"
+          done
+          for script in lib/*.sh; do
+            echo "Checking $script..."
+            bash -n "$script"
+          done
+          echo "✅ All scripts have valid syntax"
+
+  executable:
+    name: Executable Permissions
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Verify executable permissions
+        run: |
+          echo "Checking executable permissions..."
+          test -x setup-vps.sh || { echo "❌ setup-vps.sh is not executable"; exit 1; }
+          test -x deploy.sh || { echo "❌ deploy.sh is not executable"; exit 1; }
+          for script in phases/*.sh; do
+            test -x "$script" || { echo "❌ $script is not executable"; exit 1; }
+          done
+          for script in lib/*.sh; do
+            test -x "$script" || { echo "❌ $script is not executable"; exit 1; }
+          done
+          echo "✅ All scripts are executable"
+
+  shebang:
+    name: Shebang Check
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Verify shebang
+        run: |
+          echo "Checking shebang lines..."
+          for script in setup-vps.sh deploy.sh phases/*.sh lib/*.sh; do
+            head -1 "$script" | grep -q '^#!/bin/bash' || { echo "❌ $script missing or incorrect shebang"; exit 1; }
+          done
+          echo "✅ All scripts have correct shebang"
+
+  verify-epic2:
+    name: Epic 2 Verification
+    runs-on: ubuntu-latest
+    needs: [shellcheck, bash-syntax, executable, shebang]
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y shellcheck rsync
+
+      - name: Run Epic 2 verification
+        run: |
+          chmod +x deploy.sh verify_epic2.sh
+          bash verify_epic2.sh
+
+  markdown-lint:
+    name: Markdown Lint
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Check markdown files
+        run: |
+          echo "Checking markdown files exist and are non-empty..."
+          for file in README.md CONTRIBUTING.md SECURITY.md CHANGELOG.md docs/*.md docs/stories/*.md; do
+            if [ -f "$file" ]; then
+              test -s "$file" || { echo "❌ $file is empty or missing"; exit 1; }
+            else
+              echo "⚠️  $file does not exist (optional)"
+            fi
+          done
+          echo "✅ All markdown files present and non-empty"

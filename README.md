@@ -225,13 +225,27 @@ Comprehensive test plans are available in the `plans/` directory with detailed s
 
 Full epic and story documentation: [docs/EPICS.md](docs/EPICS.md) and individual stories in `docs/stories/`.
 
+## Documentation
+
+Comprehensive documentation is available in the `docs/` directory:
+
+- **[docs/PRD.md](docs/PRD.md)** - Product requirements and architecture overview
+- **[docs/manual-setup-guide.md](docs/manual-setup-guide.md)** - Manual VPS setup steps (what the scripts automate)
+- **[docs/EPICS.md](docs/EPICS.md)** - Complete list of epics and stories
+- **[CHANGELOG.md](CHANGELOG.md)** - Version history and release notes
+
 ## Contributing
 
-Contributions are welcome! Please:
+We welcome contributions! Please read [CONTRIBUTING.md](CONTRIBUTING.md) for detailed development guidelines, code quality standards, and our story-based workflow.
+
+Quick steps:
 1. Fork the repository
 2. Create a feature branch
-3. Make your changes
-4. Submit a pull request
+3. Make your changes following the bash coding standards
+4. Test your changes with `bash -n`, `shellcheck -x`, and relevant verification scripts
+5. Submit a pull request
+
+Please also review our [Security Policy](SECURITY.md) for responsible vulnerability disclosure.
 
 ## License
 

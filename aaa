@@ -1,0 +1,12 @@
+/root/.config/systemd/user/openclaw-gateway.service
+
+openclaw configure --section web
+
+- Enable web_search and paste your Brave Search API key                                │
+
+
+Alternative: set BRAVE_API_KEY in the Gateway environment (no config changes).         │
+Docs: https://docs.openclaw.ai/tools/web
+
+https://openclaw.ai/showcase
+

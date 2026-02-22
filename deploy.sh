@@ -148,6 +148,15 @@ RSYNC_OPTS=(-az --delete --stats)
 # BUILD
 # =====================
 build_site() {
+    # For dynamic sites, local build is optional/skipped
+    if [[ "$DOMAIN_TYPE" == "dynamic" ]]; then
+        if [[ "$SKIP_BUILD" == false ]]; then
+            log_info "Dynamic domain: local build will be skipped (build happens on server)"
+        fi
+        return 0
+    fi
+
+    # Static sites require build
     if [[ "$SKIP_BUILD" == true ]]; then
         log_warn "Skipping build (--skip-build)"
         if [[ ! -d "$BUILD_OUTPUT" ]]; then
@@ -165,13 +174,9 @@ build_site() {
     fi
 
     # Run build command
-    if [[ "$DRY_RUN" == true ]]; then
-        log_info "DRY RUN: Would run: $BUILD_CMD"
-    else
-        if ! $BUILD_CMD; then
-            log_error "Build failed"
-            exit 1
-        fi
+    if ! $BUILD_CMD; then
+        log_error "Build failed"
+        exit 1
     fi
 
     if [[ ! -d "$BUILD_OUTPUT" ]]; then
@@ -194,11 +199,13 @@ deploy_static() {
 
     log_step "Deploying static site to ${domain}..."
 
-    # Test SSH connection
-    if ! eval "$(build_ssh_cmd)" "${VPS_USER}@${VPS_IP}" "echo ok" &>/dev/null; then
-        log_error "Cannot connect to ${VPS_USER}@${VPS_IP}:${SSH_PORT}"
-        log_error "Check your SSH key, VPS_USER, VPS_IP, and SSH_PORT settings."
-        exit 1
+    # Test SSH connection (skip in dry-run)
+    if [[ "$DRY_RUN" == false ]]; then
+        if ! eval "$(build_ssh_cmd)" "${VPS_USER}@${VPS_IP}" "echo ok" &>/dev/null; then
+            log_error "Cannot connect to ${VPS_USER}@${VPS_IP}:${SSH_PORT}"
+            log_error "Check your SSH key, VPS_USER, VPS_IP, and SSH_PORT settings."
+            exit 1
+        fi
     fi
 
     # Ensure remote directory exists
@@ -208,10 +215,21 @@ deploy_static() {
 
     # Rsync build output
     log_info "Syncing ${BUILD_OUTPUT}/ → ${remote_path}"
-    rsync "${RSYNC_OPTS[@]}" \
-        -e "ssh $(build_ssh_cmd)" \
-        "${BUILD_OUTPUT}/" \
-        "${VPS_USER}@${VPS_IP}:${remote_path}"
+    if [[ "$DRY_RUN" == true ]]; then
+        log_info "DRY RUN: Would execute: rsync ${RSYNC_OPTS[*]} -e \"ssh $(build_ssh_cmd)\" ${BUILD_OUTPUT}/ ${VPS_USER}@${VPS_IP}:${remote_path}"
+    else
+        if ! rsync "${RSYNC_OPTS[@]}" \
+            -e "ssh $(build_ssh_cmd)" \
+            "${BUILD_OUTPUT}/" \
+            "${VPS_USER}@${VPS_IP}:${remote_path}"; then
+            log_error "Rsync failed. This could be due to:"
+            log_error "  - Network connectivity issues"
+            log_error "  - Insufficient disk space on VPS"
+            log_error "  - Permission denied on remote path"
+            log_error "  - SSH authentication failure"
+            exit 1
+        fi
+    fi
 
     if [[ "$DRY_RUN" == false ]]; then
         log_success "${domain} deployed successfully"
@@ -225,11 +243,13 @@ deploy_dynamic() {
 
     log_step "Deploying dynamic app to ${domain}..."
 
-    # Test SSH connection
-    if ! eval "$(build_ssh_cmd)" "${VPS_USER}@${VPS_IP}" "echo ok" &>/dev/null; then
-        log_error "Cannot connect to ${VPS_USER}@${VPS_IP}:${SSH_PORT}"
-        log_error "Check your SSH key, VPS_USER, VPS_IP, and SSH_PORT settings."
-        exit 1
+    # Test SSH connection (skip in dry-run)
+    if [[ "$DRY_RUN" == false ]]; then
+        if ! eval "$(build_ssh_cmd)" "${VPS_USER}@${VPS_IP}" "echo ok" &>/dev/null; then
+            log_error "Cannot connect to ${VPS_USER}@${VPS_IP}:${SSH_PORT}"
+            log_error "Check your SSH key, VPS_USER, VPS_IP, and SSH_PORT settings."
+            exit 1
+        fi
     fi
 
     # Ensure remote directory exists
@@ -239,32 +259,67 @@ deploy_dynamic() {
 
     # Rsync entire project (excluding node_modules, .next/cache)
     log_info "Syncing project → ${remote_path}"
-    rsync "${RSYNC_OPTS[@]}" \
-        --exclude='node_modules' \
-        --exclude='.next/cache' \
-        --exclude='.git' \
-        -e "ssh $(build_ssh_cmd)" \
-        "./" \
-        "${VPS_USER}@${VPS_IP}:${remote_path}"
+    if [[ "$DRY_RUN" == true ]]; then
+        log_info "DRY RUN: Would execute: rsync ${RSYNC_OPTS[*]} --exclude='node_modules' --exclude='.next/cache' --exclude='.git' -e \"ssh $(build_ssh_cmd)\" ./ ${VPS_USER}@${VPS_IP}:${remote_path}"
+    else
+        if ! rsync "${RSYNC_OPTS[@]}" \
+            --exclude='node_modules' \
+            --exclude='.next/cache' \
+            --exclude='.git' \
+            -e "ssh $(build_ssh_cmd)" \
+            "./" \
+            "${VPS_USER}@${VPS_IP}:${remote_path}"; then
+            log_error "Rsync failed. This could be due to:"
+            log_error "  - Network connectivity issues"
+            log_error "  - Insufficient disk space on VPS"
+            log_error "  - Permission denied on remote path"
+            log_error "  - SSH authentication failure"
+            exit 1
+        fi
+    fi
 
     if [[ "$DRY_RUN" == false ]]; then
         log_success "Code synced"
 
         # Post-deploy: npm install and build on server
         log_step "Running post-deploy on server..."
-        eval "$(build_ssh_cmd)" "${VPS_USER}@${VPS_IP}" "cd '${remote_path}' && npm install --production"
+        
+        # npm install --production
+        log_info "Running: npm install --production"
+        if ! eval "$(build_ssh_cmd)" "${VPS_USER}@${VPS_IP}" "cd '${remote_path}' && npm install --production"; then
+            log_error "Post-deploy npm install failed"
+            log_error "Check the application dependencies and package.json"
+            exit 1
+        fi
 
-        log_info "Building on server..."
-        eval "$(build_ssh_cmd)" "${VPS_USER}@${VPS_IP}" "cd '${remote_path}' && npm run build"
+        # npm run build
+        log_info "Running: npm run build"
+        if ! eval "$(build_ssh_cmd)" "${VPS_USER}@${VPS_IP}" "cd '${remote_path}' && npm run build"; then
+            log_error "Post-deploy npm build failed"
+            log_error "Check your build configuration"
+            exit 1
+        fi
 
-        # Restart PM2
-        log_info "Restarting PM2 process..."
-        eval "$(build_ssh_cmd)" "${VPS_USER}@${VPS_IP}" "cd '${remote_path}' && pm2 restart '${PM2_APP_NAME}' || pm2 start npm --name '${PM2_APP_NAME}' -- start"
+        # PM2 restart or start
+        log_info "Running: pm2 restart ${PM2_APP_NAME} (or start if not running)"
+        if ! eval "$(build_ssh_cmd)" "${VPS_USER}@${VPS_IP}" "cd '${remote_path}' && pm2 restart '${PM2_APP_NAME}' || pm2 start npm --name '${PM2_APP_NAME}' -- start"; then
+            log_error "PM2 restart/start failed"
+            log_error "Check PM2 installation and configuration"
+            exit 1
+        fi
+        
+        # PM2 save
         eval "$(build_ssh_cmd)" "${VPS_USER}@${VPS_IP}" "pm2 save"
 
         log_success "${domain} deployed and running"
         echo -e "    ${BOLD}Verify:${NC} https://${domain}"
         echo -e "    ${BOLD}PM2 logs:${NC} ssh ${VPS_USER}@${VPS_IP} 'pm2 logs ${PM2_APP_NAME}'"
+    else
+        log_info "DRY RUN: Would execute post-deploy commands:"
+        log_info "  - cd ${remote_path} && npm install --production"
+        log_info "  - cd ${remote_path} && npm run build"
+        log_info "  - cd ${remote_path} && pm2 restart ${PM2_APP_NAME} || pm2 start npm --name ${PM2_APP_NAME} -- start"
+        log_info "  - pm2 save"
     fi
 }
 
